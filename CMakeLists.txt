@@ -38,6 +38,6 @@ if(Boost_FOUND AND Threads_FOUND AND ZLIB_FOUND)
 	#set (Tutorial_VERSION_MAJOR 1)
 	#set (Tutorial_VERSION_MINOR 0)
 # add the executable
-	add_executable(bin/sbwt src/main.cpp)
-	target_link_libraries(bin/sbwt ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${ZLIB_LIBRARIES} ${CMAKE_SOURCE_DIR}/lib/aligner_table_linux.a)
+	add_executable(sbwt src/main.cpp)
+	target_link_libraries(sbwt ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${ZLIB_LIBRARIES} ${CMAKE_SOURCE_DIR}/lib/aligner_table_linux.a)
 endif()
