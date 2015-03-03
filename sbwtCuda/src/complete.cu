@@ -1063,19 +1063,16 @@ int STRAND_OPT = FIND_BOTH_STRAND;
 
 void build(int argc, char *argv[])
 {
-	std::string non_reference;
+	std::string dna;
 	{
 		Timer tm("Pre genome handler");
-		my_genome_pre_handler(argv[2], non_reference);
-		//std::cerr << non_reference << "\n";
+		my_genome_pre_handler(argv[2], dna);
+		//std::cerr << dna << "\n";
 		//test_load_archive_my_genome_pre_handler("my_gph_chrStart", "my_gph_chrLen", "my_gph_NposLen.z");
 	}
 
 	dim3 dim3_grid;
 	dim3 dim3_block;
-
-	std::string dna;
-	dna.swap(non_reference);
 
 	dna.resize(dna.size() - 1);
 
@@ -1085,16 +1082,12 @@ void build(int argc, char *argv[])
 	const int numSuffix = len_dna_padded - (SUFFIXLEN - 1);
 	std::cerr << "numSuffix " << numSuffix << "\n";
 
-
-
 	char *d_reference_char = NULL;
 	Type *bseq_ptr = NULL;
 	int bseq_size = 0;
 
-	{
 	Timer tm("Table total");
 	dna.append(SUFFIXLEN, 'A');
-
 	
 	{
 		Timer tm("Compress");
@@ -1102,18 +1095,12 @@ void build(int argc, char *argv[])
 		//test_bseq<<<1, 1>>>(bseq_ptr, bseq_size);
 	}
 
-	{
-		// delete dna
-		std::string &tmp = dna;
-		std::string tmp2;
-		tmp2.swap(tmp);
-	}
+	dna.clear();
 
 	thrust::host_vector<int> suffix_array(numSuffix);
 	int from_back = numSuffix - 1;
-	for (int i = 0; i < numSuffix; i++) {
+	for (int i = 0; i < numSuffix; i++)
 		suffix_array[i] = from_back--;
-	}
 
 //////////////////////////// [ Split ] ///////////////////////////////////////
 
@@ -1129,383 +1116,372 @@ void build(int argc, char *argv[])
 
 //////////////////////////// [ Split ] ///////////////////////////////////////
 
+	const int len_c_table = 5;
+	int *c_table = new int[len_c_table];
+	for (int i = 0; i < len_c_table; i++)
+		c_table[i] = 0;
+	int len_occ_table_reduce = (numSuffix + TBLSTRIDE -1) / TBLSTRIDE  + 1; // 1 is for ceil
+	int *occ_table_reduce = new int[len_occ_table_reduce * 4]; // 4 for 4 char
+	int len_location_table = (numSuffix + TBLSTRIDE - 1) / TBLSTRIDE + 1; // ceil and last
+	int *location_table_key = new int[len_location_table];
+	int *location_table_val = new int[len_location_table];
+	int location_cnt = 0;
+	int occ_cnt = 0;
+	std::vector<char> fbwt_loc_mark_tmp(numSuffix, 0);
+
+	std::string sbwt_string;
+	int pitch_accumlate = 0;;
+	for (int i = 0; i < archive_name.size(); i++)
 	{
-		const int len_c_table = 5;
-		int *c_table = new int[len_c_table];
-		for (int i = 0; i < len_c_table; i++) {
-			c_table[i] = 0;
-		}
-		int len_occ_table_reduce = (numSuffix + TBLSTRIDE -1) / TBLSTRIDE  + 1; // 1 is for ceil
-		int *occ_table_reduce = new int[len_occ_table_reduce * 4]; // 4 for 4 char
-		int len_location_table = (numSuffix + TBLSTRIDE - 1) / TBLSTRIDE + 1; // ceil and last
-		int *location_table_key = new int[len_location_table];
-		int *location_table_val = new int[len_location_table];
-		int location_cnt = 0;
-		int occ_cnt = 0;
-		std::vector<char> fbwt_loc_mark_tmp(numSuffix, 0);
+		std::vector<int> each_split;
+		archive_load("tmp/" + archive_name[i], each_split);
+		thrust::host_vector<int> sub_suffix(each_split.begin(), each_split.end());
+		char *sub_sbwt = new char[each_split.size() + 1];
+		sub_sbwt[each_split.size()] = 0;
 
-		std::string sbwt_string;
-		int pitch_accumlate = 0;;
-		for (int i = 0; i < archive_name.size(); i++)
-		{
-			std::vector<int> each_split;
-			archive_load("tmp/" + archive_name[i], each_split);
-			thrust::host_vector<int> sub_suffix(each_split.begin(), each_split.end());
-			char *sub_sbwt = new char[each_split.size() + 1];
-			sub_sbwt[each_split.size()] = 0;
+		sbwt_string_create(sub_sbwt, d_reference_char, sub_suffix);
+		sbwt_string.append(sub_sbwt);
 
-			sbwt_string_create(sub_sbwt, d_reference_char, sub_suffix);
-			sbwt_string.append(sub_sbwt);
+		free(sub_sbwt);
 
-			free(sub_sbwt);
+		int pitch_base = pitch_accumlate;
+		pitch_accumlate += each_split.size();
 
-			int pitch_base = pitch_accumlate;
-			pitch_accumlate += each_split.size();
-
-			for (int i = 0; i < each_split.size(); i++) {
-				if (sub_suffix[i] % TBLSTRIDE == 0) {
-					location_table_key[location_cnt] = i + pitch_base;  // key is SBWT index
-					location_table_val[location_cnt] = sub_suffix[i]; // val is reference index
-					location_cnt++;
-					fbwt_loc_mark_tmp[i + pitch_base] = 1;
-				}
+		for (int i = 0; i < each_split.size(); i++) {
+			if (sub_suffix[i] % TBLSTRIDE == 0) {
+				location_table_key[location_cnt] = i + pitch_base;  // key is SBWT index
+				location_table_val[location_cnt] = sub_suffix[i]; // val is reference index
+				location_cnt++;
+				fbwt_loc_mark_tmp[i + pitch_base] = 1;
 			}
-
-			for (int i = 0; i < each_split.size(); i++) {
-				if (sub_suffix[i] % TBLSTRIDE == 0) {
-					fbwt_loc_mark_tmp[i + pitch_base] = 1;
-				}
-			}
-
-
 		}
 
-		int xa = 0, xc = 0, xg = 0, xt = 0;
-		for (int i = 0; i < numSuffix; i++) {
-
-			if (i % TBLSTRIDE == 0) {
-				const int occ_base = occ_cnt * 4;
-				occ_table_reduce[occ_base + A] = xa;
-				occ_table_reduce[occ_base + C] = xc;
-				occ_table_reduce[occ_base + G] = xg;
-				occ_table_reduce[occ_base + T] = xt;
-				occ_cnt++;
+		for (int i = 0; i < each_split.size(); i++) {
+			if (sub_suffix[i] % TBLSTRIDE == 0) {
+				fbwt_loc_mark_tmp[i + pitch_base] = 1;
 			}
+		}
+	}  // archive iteration
 
-			if (sbwt_string[i] == 'A')
-				xa++;
-			else if (sbwt_string[i] == 'C')
-				xc++;
-			else if (sbwt_string[i] == 'G')
-				xg++;
-			else if (sbwt_string[i] == 'T')
-				xt++;
+	int xa = 0, xc = 0, xg = 0, xt = 0;
+	for (int i = 0; i < numSuffix; i++) {
 
+		if (i % TBLSTRIDE == 0) {
+			const int occ_base = occ_cnt * 4;
+			occ_table_reduce[occ_base + A] = xa;
+			occ_table_reduce[occ_base + C] = xc;
+			occ_table_reduce[occ_base + G] = xg;
+			occ_table_reduce[occ_base + T] = xt;
+			occ_cnt++;
 		}
 
-		len_location_table = location_cnt;
+		if (sbwt_string[i] == 'A')
+			xa++;
+		else if (sbwt_string[i] == 'C')
+			xc++;
+		else if (sbwt_string[i] == 'G')
+			xg++;
+		else if (sbwt_string[i] == 'T')
+			xt++;
 
-		c_table[A] = 1;
-		c_table[C] = c_table[A] + xa;
-		c_table[G] = c_table[C] + xc;
-		c_table[T] = c_table[G] + xg;
-		c_table[4] = numSuffix;
+	}
+
+	len_location_table = location_cnt;
+
+	c_table[A] = 1;
+	c_table[C] = c_table[A] + xa;
+	c_table[G] = c_table[C] + xc;
+	c_table[T] = c_table[G] + xg;
+	c_table[4] = numSuffix;
 	
-		///////////////////// Archive save ////////////////////////
+	///////////////////// Archive save ////////////////////////
 
-		archive_save(std::string(argv[4]) + ".sbwt.archive", sbwt_string);
+	archive_save(std::string(argv[4]) + ".sbwt.archive", sbwt_string);
 
-		std::vector<int> occ_table_reduce_v(occ_table_reduce, occ_table_reduce + len_occ_table_reduce * 4);
-		archive_save(std::string(argv[4]) + ".occ_table.archive", occ_table_reduce_v);
+	std::vector<int> occ_table_reduce_v(occ_table_reduce, occ_table_reduce + len_occ_table_reduce * 4);
+	archive_save(std::string(argv[4]) + ".occ_table.archive", occ_table_reduce_v);
 
-		std::vector<int> c_table_tmp(c_table, c_table + len_c_table);
-		archive_save(std::string(argv[4]) + ".c_table.archive", c_table_tmp);
+	std::vector<int> c_table_tmp(c_table, c_table + len_c_table);
+	archive_save(std::string(argv[4]) + ".c_table.archive", c_table_tmp);
 
-		std::vector<int> loc_tbl_key_tmp(location_table_key, location_table_key + len_location_table);
-		archive_save(std::string(argv[4]) + ".loc_tbl_k.archive", loc_tbl_key_tmp);
+	std::vector<int> loc_tbl_key_tmp(location_table_key, location_table_key + len_location_table);
+	archive_save(std::string(argv[4]) + ".loc_tbl_k.archive", loc_tbl_key_tmp);
 
-		std::vector<int> loc_tbl_val_tmp(location_table_val, location_table_val + len_location_table);
-		archive_save(std::string(argv[4]) + ".loc_tbl_v.archive", loc_tbl_val_tmp);
+	std::vector<int> loc_tbl_val_tmp(location_table_val, location_table_val + len_location_table);
+	archive_save(std::string(argv[4]) + ".loc_tbl_v.archive", loc_tbl_val_tmp);
 
-		archive_save(std::string(argv[4]) + ".fbwt_loc_mark.archive", fbwt_loc_mark_tmp);
+	archive_save(std::string(argv[4]) + ".fbwt_loc_mark.archive", fbwt_loc_mark_tmp);
 
-		//free(sbwt_string);
-		free(occ_table_reduce);
-		free(c_table);
-		free(location_table_key);
-		free(location_table_val);
-	}
-
-	}
+	//free(sbwt_string);
+	free(occ_table_reduce);
+	free(c_table);
+	free(location_table_key);
+	free(location_table_val);
 }
 
 void map(int argc, char *argv[])
 {
-	{
-		dim3 dim3_grid;
-		dim3 dim3_block;
+	dim3 dim3_grid;
+	dim3 dim3_block;
 
-		Timer tmr("Search total");
+	Timer tmr("Search total");
 	///////////////////// Pre genome handler load ////////////////////////
 
-		std::map<INTTYPE, std::string> chr_start_pos;
-		std::map<std::string, int> chr_length;
-		std::map<INTTYPE, INTTYPE> NPosLen;
-		int _realSize = 0;
+	std::map<INTTYPE, std::string> chr_start_pos;
+	std::map<std::string, int> chr_length;
+	std::map<INTTYPE, INTTYPE> NPosLen;
+	int _realSize = 0;
 
-		readChrStartPos("my_gph_chrStart", chr_start_pos);
-		readChrLen("my_gph_chrLen", _realSize, chr_length);
-		readNPosLen("my_gph_NposLen.z", NPosLen);
+	readChrStartPos("my_gph_chrStart", chr_start_pos);
+	readChrLen("my_gph_chrLen", _realSize, chr_length);
+	readNPosLen("my_gph_NposLen.z", NPosLen);
 
-		PositionChecker poschk;
-		poschk._realSize = _realSize;
-		poschk.len_chr_start_pos = chr_start_pos.size();
-		poschk.len_NPosLen = NPosLen.size();
-		thrust::device_vector<INTTYPE> dv_chr_start_pos_key(poschk.len_chr_start_pos);
-		thrust::device_vector<INTTYPE> dv_NPosLen_key(poschk.len_NPosLen);
-		thrust::device_vector<INTTYPE> dv_NPosLen_val(poschk.len_NPosLen);
+	PositionChecker poschk;
+	poschk._realSize = _realSize;
+	poschk.len_chr_start_pos = chr_start_pos.size();
+	poschk.len_NPosLen = NPosLen.size();
+	thrust::device_vector<INTTYPE> dv_chr_start_pos_key(poschk.len_chr_start_pos);
+	thrust::device_vector<INTTYPE> dv_NPosLen_key(poschk.len_NPosLen);
+	thrust::device_vector<INTTYPE> dv_NPosLen_val(poschk.len_NPosLen);
 
-		std::map<INTTYPE, std::string>::iterator it_chr_start_pos = chr_start_pos.begin();
-		for (int i = 0; i < poschk.len_chr_start_pos; i++)
-		{
-			dv_chr_start_pos_key[i] = it_chr_start_pos->first;
-			it_chr_start_pos++;
-		}
+	std::map<INTTYPE, std::string>::iterator it_chr_start_pos = chr_start_pos.begin();
+	for (int i = 0; i < poschk.len_chr_start_pos; i++)
+	{
+		dv_chr_start_pos_key[i] = it_chr_start_pos->first;
+		it_chr_start_pos++;
+	}
 
-		std::map<INTTYPE, INTTYPE>::iterator it_NPosLen = NPosLen.begin();
-		for (int i = 0; i < poschk.len_NPosLen; i++)
-		{
-			dv_NPosLen_key[i] = it_NPosLen->first;
-			dv_NPosLen_val[i] = it_NPosLen->second;
-			it_NPosLen++;
-		}
+	std::map<INTTYPE, INTTYPE>::iterator it_NPosLen = NPosLen.begin();
+	for (int i = 0; i < poschk.len_NPosLen; i++)
+	{
+		dv_NPosLen_key[i] = it_NPosLen->first;
+		dv_NPosLen_val[i] = it_NPosLen->second;
+		it_NPosLen++;
+	}
 
-		poschk.chr_start_pos_key = thrust::raw_pointer_cast(dv_chr_start_pos_key.data());
-		poschk.NPosLen_key = thrust::raw_pointer_cast(dv_NPosLen_key.data());
-		poschk.NPosLen_val = thrust::raw_pointer_cast(dv_NPosLen_val.data());
+	poschk.chr_start_pos_key = thrust::raw_pointer_cast(dv_chr_start_pos_key.data());
+	poschk.NPosLen_key = thrust::raw_pointer_cast(dv_NPosLen_key.data());
+	poschk.NPosLen_val = thrust::raw_pointer_cast(dv_NPosLen_val.data());
 
-		PositionChecker *d_poschk;
-		CudaSafeCall( cudaMalloc((void **)&d_poschk, sizeof(PositionChecker)) );
-		CudaSafeCall( cudaMemcpy(d_poschk, &poschk, sizeof(PositionChecker), cudaMemcpyHostToDevice) );
+	PositionChecker *d_poschk;
+	CudaSafeCall( cudaMalloc((void **)&d_poschk, sizeof(PositionChecker)) );
+	CudaSafeCall( cudaMemcpy(d_poschk, &poschk, sizeof(PositionChecker), cudaMemcpyHostToDevice) );
 
-		//test_poschk<<<1, 1>>>(d_poschk);
-		//return 0;
+	//test_poschk<<<1, 1>>>(d_poschk);
+	//return 0;
 
 	///////////////////// Archive loc ////////////////////////
-		std::string sbwt_arc;
-		archive_load(std::string(argv[4]) + ".sbwt.archive", sbwt_arc);
-		char *p_sbwt_arc = (char *)sbwt_arc.c_str(); // dangerous from const to non-const
-		const int sz_sbwt = sbwt_arc.size();
-		const int num_suffix = sz_sbwt + 1;
+	std::string sbwt_arc;
+	archive_load(std::string(argv[4]) + ".sbwt.archive", sbwt_arc);
+	char *p_sbwt_arc = (char *)sbwt_arc.c_str(); // dangerous from const to non-const
+	const int sz_sbwt = sbwt_arc.size();
+	const int num_suffix = sz_sbwt + 1;
 
-		std::vector<int> occ_table_arc;
-		archive_load(std::string(argv[4]) + ".occ_table.archive", occ_table_arc);
-		int *p_occ_table_arc = &occ_table_arc[0];
-		const int sz_occ_table = occ_table_arc.size();
+	std::vector<int> occ_table_arc;
+	archive_load(std::string(argv[4]) + ".occ_table.archive", occ_table_arc);
+	int *p_occ_table_arc = &occ_table_arc[0];
+	const int sz_occ_table = occ_table_arc.size();
 
-		std::vector<int> c_table_arc;
-		archive_load(std::string(argv[4]) + ".c_table.archive", c_table_arc);
-		int *p_c_table_arc = &c_table_arc[0];
-		const int sz_c_table = c_table_arc.size();
+	std::vector<int> c_table_arc;
+	archive_load(std::string(argv[4]) + ".c_table.archive", c_table_arc);
+	int *p_c_table_arc = &c_table_arc[0];
+	const int sz_c_table = c_table_arc.size();
 
-		std::vector<int> loc_tbl_key_arc;
-		archive_load(std::string(argv[4]) + ".loc_tbl_k.archive", loc_tbl_key_arc);
-		int *p_loc_tbl_k_arc = &loc_tbl_key_arc[0];
-		const int sz_loc_tbl_k = loc_tbl_key_arc.size();
+	std::vector<int> loc_tbl_key_arc;
+	archive_load(std::string(argv[4]) + ".loc_tbl_k.archive", loc_tbl_key_arc);
+	int *p_loc_tbl_k_arc = &loc_tbl_key_arc[0];
+	const int sz_loc_tbl_k = loc_tbl_key_arc.size();
 
-		std::vector<int> loc_tbl_val_arc;
-		archive_load(std::string(argv[4]) + ".loc_tbl_v.archive", loc_tbl_val_arc);
-		int *p_loc_tbl_v_arc = &loc_tbl_val_arc[0];
-		const int sz_loc_tbl_v = loc_tbl_val_arc.size();
+	std::vector<int> loc_tbl_val_arc;
+	archive_load(std::string(argv[4]) + ".loc_tbl_v.archive", loc_tbl_val_arc);
+	int *p_loc_tbl_v_arc = &loc_tbl_val_arc[0];
+	const int sz_loc_tbl_v = loc_tbl_val_arc.size();
 
-		std::vector<char> fbwt_loc_mark_arc;
-		archive_load(std::string(argv[4]) + ".fbwt_loc_mark.archive", fbwt_loc_mark_arc);
-		char *p_fbwt_loc_mark_arc = &fbwt_loc_mark_arc[0];
-		const int sz_fbwt_loc_mark = fbwt_loc_mark_arc.size();
+	std::vector<char> fbwt_loc_mark_arc;
+	archive_load(std::string(argv[4]) + ".fbwt_loc_mark.archive", fbwt_loc_mark_arc);
+	char *p_fbwt_loc_mark_arc = &fbwt_loc_mark_arc[0];
+	const int sz_fbwt_loc_mark = fbwt_loc_mark_arc.size();
 
 	/////////////////////         Searching      ////////////////////////
 
-		std::fstream reads_fs;
-		reads_fs.open(argv[2]);
-		if (!reads_fs.is_open()) {
-			std::cerr << "Reads file open failed." << std::endl;
-			return;
-		}
-
-		int total_num_reads = NUM_READS;
-
-		if (total_num_reads < 1) {
-			std::cerr << "Load reads number failed." << std::endl;
-			return;
-		}
-
-
-		//////// : transfer to CUDA here
-		int *d_result;
-		int *d_resultz;
-		bool *d_result_rc;
-		int *d_result_it;
-		char *d_reads;
-		int *d_c_table;
-		int *d_occ_table_reduce;
-		char *d_sbwt_string;
-		int *d_location_table_key;
-		int *d_location_table_val;
-		char *d_fbwt_loc_mark;
-
-
-		CudaSafeCall( cudaMalloc((void **)&d_c_table, sizeof(int) * sz_c_table) );
-		CudaSafeCall( cudaMemcpy(d_c_table, p_c_table_arc, sizeof(int) * sz_c_table, cudaMemcpyHostToDevice) );
-		CudaSafeCall( cudaMalloc((void **)&d_occ_table_reduce, sizeof(int) * sz_occ_table) );
-		CudaSafeCall( cudaMemcpy(d_occ_table_reduce, p_occ_table_arc, sizeof(int) * sz_occ_table, cudaMemcpyHostToDevice) );
-		CudaSafeCall( cudaMalloc((void **)&d_sbwt_string, sizeof(char) * (sz_sbwt + 1)) );
-		CudaSafeCall( cudaMemcpy(d_sbwt_string, p_sbwt_arc, sizeof(char) * (sz_sbwt + 1), cudaMemcpyHostToDevice) );
-		CudaSafeCall( cudaMalloc((void **)&d_location_table_key, sizeof(int) * sz_loc_tbl_k) );
-		CudaSafeCall( cudaMemcpy(d_location_table_key, p_loc_tbl_k_arc, sizeof(int) * sz_loc_tbl_k, cudaMemcpyHostToDevice) );
-		CudaSafeCall( cudaMalloc((void **)&d_location_table_val, sizeof(int) * sz_loc_tbl_v) );
-		CudaSafeCall( cudaMemcpy(d_location_table_val, p_loc_tbl_v_arc, sizeof(int) * sz_loc_tbl_v, cudaMemcpyHostToDevice) );
-		CudaSafeCall( cudaMalloc((void **)&d_fbwt_loc_mark, sizeof(char) * sz_fbwt_loc_mark) );
-		CudaSafeCall( cudaMemcpy(d_fbwt_loc_mark, p_fbwt_loc_mark_arc, sizeof(char) * sz_fbwt_loc_mark, cudaMemcpyHostToDevice) );
-
-		int dim_blk = 3125;
-		int dim_thd = 128;
-
-		//showCudaUsage();
-
-		int num_reads = (dim_blk * dim_thd);
-
-		int round = total_num_reads / num_reads;
-		if (round == 0)
-		{
-			num_reads = total_num_reads;
-			round = 1;
-		}
-
-		std::string peek_read;
-
-		// the second line is read in fastq format
-		reads_fs >> peek_read;
-		reads_fs >> peek_read;
-		const int read_length = peek_read.length() + 1;
-
-		reads_fs.seekg(0);
-		reads_fs.seekp(0);
-
-		std::string read_name, read_body, read_opt, read_quality;
-
-		std::vector<std::string> vec_read_name(num_reads);
-		std::vector<std::string> vec_read_quality(num_reads);
-
-		std::ofstream out_result(argv[6]);
-		for (int y = 0; y < round; y++) {
-			//# showCudaUsage();
-
-			char *reads_array = new char[num_reads * read_length];
-			char *reads_array_trans;
-
-			int *result;
-			int *resultz;
-			bool *result_rc;
-			int *result_it;
-			{
-				//@@Timer tt("Allocation");
-				for (int i = 0; i < num_reads; i++) {
-					reads_array_trans = (reads_array + i * read_length);
-					fastq_reader(reads_fs, read_name, read_body, read_opt, read_quality);
-					
-					vec_read_name[i] = read_name;
-					vec_read_quality[i] = read_quality;
-					strcpy(reads_array_trans, read_body.c_str());
-				}
-
-				CudaSafeCall( cudaMalloc((void **)&d_reads, sizeof(char) * num_reads * read_length) );
-				CudaSafeCall( cudaMemcpy(d_reads, reads_array, sizeof(char) * num_reads * read_length, cudaMemcpyHostToDevice) );
-				//showCudaUsage();
-				CudaSafeCall( cudaMalloc((void **)&d_result, sizeof(int) * num_reads) ); // result
-				//showCudaUsage();
-				CudaSafeCall( cudaMalloc((void **)&d_resultz, sizeof(int) * num_reads * OVERNUM) );
-				//showCudaUsage();
-				CudaSafeCall( cudaMalloc((void **)&d_result_rc, sizeof(bool) * num_reads * OVERNUM) );
-				//showCudaUsage();
-				CudaSafeCall( cudaMalloc((void **)&d_result_it, sizeof(int) * num_reads * OVERNUM) );
-				showCudaUsage();
-
-				result = new int[num_reads];
-				resultz = new int[num_reads * OVERNUM];
-				result_rc = new bool[num_reads * OVERNUM];
-				result_it = new int[num_reads * OVERNUM];
-			}
-			{
-				//@@Timer tt("Find once");
-				find_read<<<dim_blk, dim_thd>>>(d_reads, d_c_table, (int (*)[4])d_occ_table_reduce, (sz_occ_table / 4), d_sbwt_string, num_suffix, sz_loc_tbl_k, d_location_table_key, d_location_table_val, d_result, d_resultz , d_result_rc, d_result_it, num_reads, d_fbwt_loc_mark, read_length, d_poschk, STRAND_OPT);
-
-				CudaCheckError();
-
-				CudaSafeCall( cudaMemcpy(result, d_result, sizeof(int) * num_reads, cudaMemcpyDeviceToHost) ); 
-				CudaSafeCall( cudaMemcpy(resultz, d_resultz, sizeof(int) * num_reads * OVERNUM, cudaMemcpyDeviceToHost) );
-				CudaSafeCall( cudaMemcpy(result_rc, d_result_rc, sizeof(bool) * num_reads * OVERNUM, cudaMemcpyDeviceToHost) );
-				CudaSafeCall( cudaMemcpy(result_it, d_result_it, sizeof(int) * num_reads * OVERNUM, cudaMemcpyDeviceToHost) );
-			}
-			{
-				//@@Timer tt("IO");
-				int base;
-				for (int i = 0; i < num_reads; i++) {
-					base = i * OVERNUM;
-					for (int j = 0; j < result[i]; j++) {
-						//std::cout << resultz[base + j] << ' ' << (reads_array + i * read_length) << '\n';
-						//std::cout << result_rc[base + j] << '\n';
-						//std::cout << result_it[base + j] << '\n';
-
-						std::map<INTTYPE, std::string>::iterator it = chr_start_pos.begin();
-						std::advance(it, result_it[base + j]);
-						if (result_rc[base + j ] == false)
-						{
-							out_result << vec_read_name[i] << "\t"
-									  << MAPPED << "\t"
-									  << it->second << "\t"
-									  << resultz[base + j] + 1 << "\t"
-									  << 255 << "\t"
-									  << (read_length - 1) << "M" << "\t"
-									  << "*\t"
-									  << 0 << "\t" << 0 << "\t"
-									  << (reads_array + i * read_length) << "\t"
-									  << vec_read_quality[i] << "\t"
-									  << result[i] << "\n";
-						}
-						else
-						{
-							out_result << vec_read_name[i] << "\t"
-									  << REVERSE_COMPLEMENTED << "\t"
-									  << it->second << "\t"
-									  << resultz[base + j] + 1 << "\t"
-									  << 255 << "\t"
-									  << (read_length - 1) << "M" << "\t"
-									  << "*\t"
-									  << 0 << "\t" << 0 << "\t"
-									  << rc_seq(reads_array + i * read_length, read_length - 1) << "\t"
-									  << r_seq(vec_read_quality[i]) << "\t"
-									  << result[i] << "\n";
-						}
-
-					}
-				}
-			}
-			{
-				//@@Timer tt("Deallocate");
-				CudaSafeCall( cudaFree(d_result) );
-				CudaSafeCall( cudaFree(d_resultz) );
-				CudaSafeCall( cudaFree(d_result_rc) );
-				CudaSafeCall( cudaFree(d_result_it) );
-				CudaSafeCall( cudaFree(d_reads) );
-				free(reads_array);
-				free(result);
-				free(resultz);
-				free(result_rc);
-				free(result_it);
-			}
-		}
-		out_result.close();
+	std::fstream reads_fs;
+	reads_fs.open(argv[2]);
+	if (!reads_fs.is_open()) {
+		std::cerr << "Reads file open failed." << std::endl;
+		return;
 	}
+
+	int total_num_reads = NUM_READS;
+
+	if (total_num_reads < 1) {
+		std::cerr << "Load reads number failed." << std::endl;
+		return;
+	}
+
+	//////// : transfer to CUDA here
+	int *d_result;
+	int *d_resultz;
+	bool *d_result_rc;
+	int *d_result_it;
+	char *d_reads;
+	int *d_c_table;
+	int *d_occ_table_reduce;
+	char *d_sbwt_string;
+	int *d_location_table_key;
+	int *d_location_table_val;
+	char *d_fbwt_loc_mark;
+
+
+	CudaSafeCall( cudaMalloc((void **)&d_c_table, sizeof(int) * sz_c_table) );
+	CudaSafeCall( cudaMemcpy(d_c_table, p_c_table_arc, sizeof(int) * sz_c_table, cudaMemcpyHostToDevice) );
+	CudaSafeCall( cudaMalloc((void **)&d_occ_table_reduce, sizeof(int) * sz_occ_table) );
+	CudaSafeCall( cudaMemcpy(d_occ_table_reduce, p_occ_table_arc, sizeof(int) * sz_occ_table, cudaMemcpyHostToDevice) );
+	CudaSafeCall( cudaMalloc((void **)&d_sbwt_string, sizeof(char) * (sz_sbwt + 1)) );
+	CudaSafeCall( cudaMemcpy(d_sbwt_string, p_sbwt_arc, sizeof(char) * (sz_sbwt + 1), cudaMemcpyHostToDevice) );
+	CudaSafeCall( cudaMalloc((void **)&d_location_table_key, sizeof(int) * sz_loc_tbl_k) );
+	CudaSafeCall( cudaMemcpy(d_location_table_key, p_loc_tbl_k_arc, sizeof(int) * sz_loc_tbl_k, cudaMemcpyHostToDevice) );
+	CudaSafeCall( cudaMalloc((void **)&d_location_table_val, sizeof(int) * sz_loc_tbl_v) );
+	CudaSafeCall( cudaMemcpy(d_location_table_val, p_loc_tbl_v_arc, sizeof(int) * sz_loc_tbl_v, cudaMemcpyHostToDevice) );
+	CudaSafeCall( cudaMalloc((void **)&d_fbwt_loc_mark, sizeof(char) * sz_fbwt_loc_mark) );
+	CudaSafeCall( cudaMemcpy(d_fbwt_loc_mark, p_fbwt_loc_mark_arc, sizeof(char) * sz_fbwt_loc_mark, cudaMemcpyHostToDevice) );
+
+	int dim_blk = 3125;
+	int dim_thd = 128;
+
+	//showCudaUsage();
+
+	int num_reads = (dim_blk * dim_thd);
+
+	int round = total_num_reads / num_reads;
+	if (round == 0)
+	{
+		num_reads = total_num_reads;
+		round = 1;
+	}
+
+	std::string peek_read;
+
+	// the second line is read in fastq format
+	reads_fs >> peek_read;
+	reads_fs >> peek_read;
+	const int read_length = peek_read.length() + 1;
+
+	reads_fs.seekg(0);
+	reads_fs.seekp(0);
+
+	std::string read_name, read_body, read_opt, read_quality;
+
+	std::vector<std::string> vec_read_name(num_reads);
+	std::vector<std::string> vec_read_quality(num_reads);
+
+	std::ofstream out_result(argv[6]);
+	for (int y = 0; y < round; y++) {
+		//# showCudaUsage();
+
+		char *reads_array = new char[num_reads * read_length];
+		char *reads_array_trans;
+
+		int *result;
+		int *resultz;
+		bool *result_rc;
+		int *result_it;
+		{
+			//@@Timer tt("Allocation");
+			for (int i = 0; i < num_reads; i++) {
+				reads_array_trans = (reads_array + i * read_length);
+				fastq_reader(reads_fs, read_name, read_body, read_opt, read_quality);
+
+				vec_read_name[i] = read_name;
+				vec_read_quality[i] = read_quality;
+				strcpy(reads_array_trans, read_body.c_str());
+			}
+
+			CudaSafeCall( cudaMalloc((void **)&d_reads, sizeof(char) * num_reads * read_length) );
+			CudaSafeCall( cudaMemcpy(d_reads, reads_array, sizeof(char) * num_reads * read_length, cudaMemcpyHostToDevice) );
+			//showCudaUsage();
+			CudaSafeCall( cudaMalloc((void **)&d_result, sizeof(int) * num_reads) ); // result
+			//showCudaUsage();
+			CudaSafeCall( cudaMalloc((void **)&d_resultz, sizeof(int) * num_reads * OVERNUM) );
+			//showCudaUsage();
+			CudaSafeCall( cudaMalloc((void **)&d_result_rc, sizeof(bool) * num_reads * OVERNUM) );
+			//showCudaUsage();
+			CudaSafeCall( cudaMalloc((void **)&d_result_it, sizeof(int) * num_reads * OVERNUM) );
+			showCudaUsage();
+
+			result = new int[num_reads];
+			resultz = new int[num_reads * OVERNUM];
+			result_rc = new bool[num_reads * OVERNUM];
+			result_it = new int[num_reads * OVERNUM];
+		}
+		{
+			//@@Timer tt("Find once");
+			find_read<<<dim_blk, dim_thd>>>(d_reads, d_c_table, (int (*)[4])d_occ_table_reduce, (sz_occ_table / 4), d_sbwt_string, num_suffix, sz_loc_tbl_k, d_location_table_key, d_location_table_val, d_result, d_resultz , d_result_rc, d_result_it, num_reads, d_fbwt_loc_mark, read_length, d_poschk, STRAND_OPT);
+
+			CudaCheckError();
+
+			CudaSafeCall( cudaMemcpy(result, d_result, sizeof(int) * num_reads, cudaMemcpyDeviceToHost) );
+			CudaSafeCall( cudaMemcpy(resultz, d_resultz, sizeof(int) * num_reads * OVERNUM, cudaMemcpyDeviceToHost) );
+			CudaSafeCall( cudaMemcpy(result_rc, d_result_rc, sizeof(bool) * num_reads * OVERNUM, cudaMemcpyDeviceToHost) );
+			CudaSafeCall( cudaMemcpy(result_it, d_result_it, sizeof(int) * num_reads * OVERNUM, cudaMemcpyDeviceToHost) );
+		}
+		{
+			//@@Timer tt("IO");
+			for (int i = 0; i < num_reads; i++) {
+				int base = i * OVERNUM;
+				for (int j = 0; j < result[i]; j++) {
+					//std::cout << resultz[base + j] << ' ' << (reads_array + i * read_length) << '\n';
+					//std::cout << result_rc[base + j] << '\n';
+					//std::cout << result_it[base + j] << '\n';
+
+					std::map<INTTYPE, std::string>::iterator it = chr_start_pos.begin();
+					std::advance(it, result_it[base + j]);
+					if (result_rc[base + j ] == false)
+					{
+						out_result << vec_read_name[i] << "\t"
+								   << MAPPED << "\t"
+								   << it->second << "\t"
+								   << resultz[base + j] + 1 << "\t"
+								   << 255 << "\t"
+								   << (read_length - 1) << "M" << "\t"
+								   << "*\t"
+								   << 0 << "\t" << 0 << "\t"
+								   << (reads_array + i * read_length) << "\t"
+								   << vec_read_quality[i] << "\t"
+								   << result[i] << "\n";
+					}
+					else
+					{
+						out_result << vec_read_name[i] << "\t"
+								   << REVERSE_COMPLEMENTED << "\t"
+								   << it->second << "\t"
+								   << resultz[base + j] + 1 << "\t"
+								   << 255 << "\t"
+								   << (read_length - 1) << "M" << "\t"
+								   << "*\t"
+								   << 0 << "\t" << 0 << "\t"
+								   << rc_seq(reads_array + i * read_length, read_length - 1) << "\t"
+								   << r_seq(vec_read_quality[i]) << "\t"
+								   << result[i] << "\n";
+					}
+
+				}
+			}
+		}
+		{
+			//@@Timer tt("Deallocate");
+			CudaSafeCall( cudaFree(d_result) );
+			CudaSafeCall( cudaFree(d_resultz) );
+			CudaSafeCall( cudaFree(d_result_rc) );
+			CudaSafeCall( cudaFree(d_result_it) );
+			CudaSafeCall( cudaFree(d_reads) );
+			free(reads_array);
+			free(result);
+			free(resultz);
+			free(result_rc);
+			free(result_it);
+		}
+	}  // for all reads
+	out_result.close();
 }
 
 int main(int argc, char *argv[])
