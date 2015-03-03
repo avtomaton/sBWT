@@ -6,12 +6,6 @@ sBWT is released under GPLv2 with additional restriction so that is only applica
 
 ##INSTALL
 *Only 64 bits systems are able to compile and run sBWT aligner.
-    
-### Run the binary directly without installation 
-Please try the precompiled binaries first, most of the linux systems should be able to run Tailor without any troubles.
-```bash
-bin/sbwt_linux 		# for linux
-```
 
 ### Compile from the source code
 #### Install the dependencies
@@ -21,14 +15,15 @@ bin/sbwt_linux 		# for linux
 
 #### Get the latest version of the software
 ```bash
-git clone git@github.com:jhhung/sBWT.git
+git clone git@github.com:avtomaton/sBWT.git
 ```
 
-#### Enter the folder sBWT and:
+#### Create build scripts:
+- Create folder when you want to build sBWT and enter to it;
 - Set environmental variable `$BOOST_ROOT` to the directory of boost if CMake cannot find boost automatically;
-- Set environmental variable `$CC` and `$CXX` to the gcc/g++ compiler you want to use.	
+- Set environmental variable `$CC` and `$CXX` to the gcc/g++ compiler you want to use.
 ```bash
-cmake .
+cmake SBWT_SOURCES_FOLDER
 ```
 
 #### Compile the software by typing:
@@ -60,39 +55,35 @@ GPU version
 ===========
 
 ##Install
-In sbwtCuda direction
-```bash
-bin/com_rf	#for mapping
-bin/com_tbl	#for indexing
-```
+
 ### Compile from the source code
 #### Install the dependencies
 - 1.1 Relative recent C++ compiler that support most features of C++11. We recommend [GCC](http://gcc.gnu.org/).
 - 1.2 [Boost](http://www.boost.org/users/download/)
-- 1.3 CUDA's Compute Capability 2.0, Tesla K20 is recommended
+- 1.3 CUDA's Minimal Compute Capability 2.0
 
 
 #### Enter the folder sbwtCuda and:
 - Set environmental variable `$CC` and `$CXX` to the gcc/g++ compiler you want to use.
 ```bash
-make com_rf		#for mapping
-make com_tbl	#for indexing
+make
 ```
 
-##USAGE
+#### Build genomic index
 ```bash
-com_tbl [reference.fa] xxx 3125 128 4000000					#for indexing
-#the bwt file will generate in local diretion where you run the program.
+sbwt-cuda build -i [genome.fa] -p [ouput prefix]
+```
 
-com_rf xxx [reads.fq] 3125 128 [reads number] > [output.sam] 	#for mapping
-#the "xxx" and numeric parameter is unessesery please just copy it.
+#### Mapping
+```bash
+sbwt map -i [reads.fq] -p [index prefix] -o [output.sam]  # for mapping
 ```
 
 
-##Contact
-- Jui-Hung Hung <juihunghung@gmail.com>
-- Min-Te Chou <poi5305@gmail.com>
-- Ting-Wei Hong <thestyle1202@gmail.com>
-- Chia-Hua Chang <CHChang810716@gmail.com>
+## Contact
+- Viktor Pogrebniak <avtomaton@gmail.com>
+
+## Original Repository
+https://github.com/jhhung/sBWT
 
 
