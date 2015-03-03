@@ -25,6 +25,8 @@
 
 #include "my_genome_pre_handler.hpp"
 
+static const int NUM_READS = 4;
+
 typedef unsigned short Type;
 typedef long long INTTYPE;
 #define SUFFIXLEN 256 //###
@@ -778,7 +780,7 @@ void classify_seq_tables(std::vector<int> &split_table, Type *bseq_ptr, int bseq
 void mkq_sort(std::vector<std::string> &archive_name, thrust::host_vector<int> &suffix_array, std::vector< thrust::host_vector<int> > &SeqTables, Type *bseq_ptr, int bseq_size)
 {
 	//std::vector<std::string> archive_name;
-	//archive_load("archive_name.archive", archive_name);
+	//archive_load("tmp/archive_name.archive", archive_name);
 
 	for (int i = 0; i < SeqTables.size(); i++)
 	{
@@ -793,7 +795,7 @@ void mkq_sort(std::vector<std::string> &archive_name, thrust::host_vector<int> &
 		{
 			Timer tt("Split archive");
 			std::vector<int> each_group(SeqTables[i].begin(), SeqTables[i].end());
-			archive_save(archive_name[i], each_group);
+			archive_save("tmp/" + archive_name[i], each_group);
 
 			//thrust::host_vector<int> empty;
 			//empty.swap(SeqTables[i]);
@@ -842,7 +844,7 @@ void split_sort(std::vector<std::string> &archive_name, Type *bseq_ptr, int bseq
 		mkq_sort(archive_name, new_suffix_array, SeqTables, bseq_ptr, bseq_size);
 	}
 
-	archive_save("archive_name.archive", archive_name);
+	archive_save("tmp/archive_name.archive", archive_name);
 }
 
 
@@ -989,7 +991,7 @@ void test_split_sort(thrust::host_vector<int> &suffix_array_qq, Type *bseq_ptr, 
 	for (int i = 0; i < archive_name.size(); i++)
 	{
 		std::vector<int> sub_suffix_array;
-		archive_load(archive_name[i], sub_suffix_array);
+		archive_load("tmp/" + archive_name[i], sub_suffix_array);
 		suffix_array.insert(suffix_array.end(), sub_suffix_array.begin(), sub_suffix_array.end());
 	}
 
@@ -1061,11 +1063,10 @@ int STRAND_OPT = FIND_BOTH_STRAND;
 
 void build(int argc, char *argv[])
 {
-#ifdef IS_CREATE_TBL
 	std::string non_reference;
 	{
 		Timer tm("Pre genome handler");
-		my_genome_pre_handler(argv[1], non_reference);
+		my_genome_pre_handler(argv[2], non_reference);
 		//std::cerr << non_reference << "\n";
 		//test_load_archive_my_genome_pre_handler("my_gph_chrStart", "my_gph_chrLen", "my_gph_NposLen.z");
 	}
@@ -1148,7 +1149,7 @@ void build(int argc, char *argv[])
 		for (int i = 0; i < archive_name.size(); i++)
 		{
 			std::vector<int> each_split;
-			archive_load(archive_name[i], each_split);
+			archive_load("tmp/" + archive_name[i], each_split);
 			thrust::host_vector<int> sub_suffix(each_split.begin(), each_split.end());
 			char *sub_sbwt = new char[each_split.size() + 1];
 			sub_sbwt[each_split.size()] = 0;
@@ -1212,21 +1213,21 @@ void build(int argc, char *argv[])
 	
 		///////////////////// Archive save ////////////////////////
 
-		archive_save("sbwt.archive", sbwt_string);
+		archive_save(std::string(argv[4]) + ".sbwt.archive", sbwt_string);
 
 		std::vector<int> occ_table_reduce_v(occ_table_reduce, occ_table_reduce + len_occ_table_reduce * 4);
-		archive_save("occ_table.archive", occ_table_reduce_v);
+		archive_save(std::string(argv[4]) + ".occ_table.archive", occ_table_reduce_v);
 
 		std::vector<int> c_table_tmp(c_table, c_table + len_c_table);
-		archive_save("c_table.archive", c_table_tmp);
+		archive_save(std::string(argv[4]) + ".c_table.archive", c_table_tmp);
 
 		std::vector<int> loc_tbl_key_tmp(location_table_key, location_table_key + len_location_table);
-		archive_save("loc_tbl_k.archive", loc_tbl_key_tmp);
+		archive_save(std::string(argv[4]) + ".loc_tbl_k.archive", loc_tbl_key_tmp);
 
 		std::vector<int> loc_tbl_val_tmp(location_table_val, location_table_val + len_location_table);
-		archive_save("loc_tbl_v.archive", loc_tbl_val_tmp);
+		archive_save(std::string(argv[4]) + ".loc_tbl_v.archive", loc_tbl_val_tmp);
 
-		archive_save("fbwt_loc_mark.archive", fbwt_loc_mark_tmp);
+		archive_save(std::string(argv[4]) + ".fbwt_loc_mark.archive", fbwt_loc_mark_tmp);
 
 		//free(sbwt_string);
 		free(occ_table_reduce);
@@ -1236,12 +1237,10 @@ void build(int argc, char *argv[])
 	}
 
 	}
-#endif
 }
 
 void map(int argc, char *argv[])
 {
-#ifdef IS_FIND_READS
 	{
 		dim3 dim3_grid;
 		dim3 dim3_block;
@@ -1294,33 +1293,33 @@ void map(int argc, char *argv[])
 
 	///////////////////// Archive loc ////////////////////////
 		std::string sbwt_arc;
-		archive_load("sbwt.archive", sbwt_arc);
+		archive_load(std::string(argv[4]) + ".sbwt.archive", sbwt_arc);
 		char *p_sbwt_arc = (char *)sbwt_arc.c_str(); // dangerous from const to non-const
 		const int sz_sbwt = sbwt_arc.size();
 		const int num_suffix = sz_sbwt + 1;
 
 		std::vector<int> occ_table_arc;
-		archive_load("occ_table.archive", occ_table_arc);
+		archive_load(std::string(argv[4]) + ".occ_table.archive", occ_table_arc);
 		int *p_occ_table_arc = &occ_table_arc[0];
 		const int sz_occ_table = occ_table_arc.size();
 
 		std::vector<int> c_table_arc;
-		archive_load("c_table.archive", c_table_arc);
+		archive_load(std::string(argv[4]) + ".c_table.archive", c_table_arc);
 		int *p_c_table_arc = &c_table_arc[0];
 		const int sz_c_table = c_table_arc.size();
 
 		std::vector<int> loc_tbl_key_arc;
-		archive_load("loc_tbl_k.archive", loc_tbl_key_arc);
+		archive_load(std::string(argv[4]) + ".loc_tbl_k.archive", loc_tbl_key_arc);
 		int *p_loc_tbl_k_arc = &loc_tbl_key_arc[0];
 		const int sz_loc_tbl_k = loc_tbl_key_arc.size();
 
 		std::vector<int> loc_tbl_val_arc;
-		archive_load("loc_tbl_v.archive", loc_tbl_val_arc);
+		archive_load(std::string(argv[4]) + ".loc_tbl_v.archive", loc_tbl_val_arc);
 		int *p_loc_tbl_v_arc = &loc_tbl_val_arc[0];
 		const int sz_loc_tbl_v = loc_tbl_val_arc.size();
 
 		std::vector<char> fbwt_loc_mark_arc;
-		archive_load("fbwt_loc_mark.archive", fbwt_loc_mark_arc);
+		archive_load(std::string(argv[4]) + ".fbwt_loc_mark.archive", fbwt_loc_mark_arc);
 		char *p_fbwt_loc_mark_arc = &fbwt_loc_mark_arc[0];
 		const int sz_fbwt_loc_mark = fbwt_loc_mark_arc.size();
 
@@ -1333,9 +1332,7 @@ void map(int argc, char *argv[])
 			return;
 		}
 
-		std::ofstream out_result(argv[6]);
-
-		int total_num_reads = atoi(argv[5]);
+		int total_num_reads = NUM_READS;
 
 		if (total_num_reads < 1) {
 			std::cerr << "Load reads number failed." << std::endl;
@@ -1370,8 +1367,8 @@ void map(int argc, char *argv[])
 		CudaSafeCall( cudaMalloc((void **)&d_fbwt_loc_mark, sizeof(char) * sz_fbwt_loc_mark) );
 		CudaSafeCall( cudaMemcpy(d_fbwt_loc_mark, p_fbwt_loc_mark_arc, sizeof(char) * sz_fbwt_loc_mark, cudaMemcpyHostToDevice) );
 
-		int dim_blk = atoi(argv[3]);
-		int dim_thd = atoi(argv[4]);
+		int dim_blk = 3125;
+		int dim_thd = 128;
 
 		//showCudaUsage();
 
@@ -1399,6 +1396,7 @@ void map(int argc, char *argv[])
 		std::vector<std::string> vec_read_name(num_reads);
 		std::vector<std::string> vec_read_quality(num_reads);
 
+		std::ofstream out_result(argv[6]);
 		for (int y = 0; y < round; y++) {
 			//# showCudaUsage();
 
@@ -1462,7 +1460,7 @@ void map(int argc, char *argv[])
 						std::advance(it, result_it[base + j]);
 						if (result_rc[base + j ] == false)
 						{
-							std::cout << vec_read_name[i] << "\t"
+							out_result << vec_read_name[i] << "\t"
 									  << MAPPED << "\t"
 									  << it->second << "\t"
 									  << resultz[base + j] + 1 << "\t"
@@ -1476,7 +1474,7 @@ void map(int argc, char *argv[])
 						}
 						else
 						{
-							std::cout << vec_read_name[i] << "\t"
+							out_result << vec_read_name[i] << "\t"
 									  << REVERSE_COMPLEMENTED << "\t"
 									  << it->second << "\t"
 									  << resultz[base + j] + 1 << "\t"
@@ -1506,14 +1504,26 @@ void map(int argc, char *argv[])
 				free(result_it);
 			}
 		}
+		out_result.close();
 	}
-#endif
 }
 
 int main(int argc, char *argv[])
 {
-	build(argc, argv);
-	map(argc, argv);
+	if (argc < 2)
+	{
+		fprintf(stderr, "must be at least 2 arguments\n");
+		return -1;
+	}
+	if (argv[1] == std::string("build"))
+		build(argc - 1, argv + 1);
+	else if (argv[1] == std::string("map"))
+		map(argc - 1, argv + 1);
+	else
+	{
+		fprintf(stderr, "incorrect action %s: must be 'build' or 'map'\n", argv[1]);
+		return -1;
+	}
 
 	return 0;
 }
