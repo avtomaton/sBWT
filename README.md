@@ -4,7 +4,7 @@ sBWT is a Burrows–Wheeler transform (BWT) based fast indexer/aligner specializ
 
 sBWT is released under GPLv2 with additional restriction so that is only applicable to individuals and non-profits and that any for-profit company must purchase a different license.    
 
-##INSTALL
+## INSTALL
 *Only 64 bits systems are able to compile and run sBWT aligner.
 
 ### Compile from the source code
@@ -39,7 +39,7 @@ make
 make
 ```
 	
-##USAGE
+## USAGE
 
 #### Build genomic index (similar to bowtie-build)
 ```bash
@@ -54,7 +54,7 @@ sbwt map -i [reads.fq] -p [index prefix] -o [output.sam]
 GPU version
 ===========
 
-##Install
+## Install
 
 ### Compile from the source code
 #### Install the dependencies
@@ -76,7 +76,7 @@ sbwt-cuda build -i [genome.fa] -p [ouput prefix]
 
 #### Mapping
 ```bash
-sbwt map -i [reads.fq] -p [index prefix] -o [output.sam]  # for mapping
+sbwt-cuda map -i [reads.fq] -p [index prefix] -o [output.sam]
 ```
 
 
